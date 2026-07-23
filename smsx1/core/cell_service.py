@@ -52,11 +52,15 @@ class CellService:
         self.available = _WINRT_OK
         self.last_error = _WINRT_ERR
 
+    TIMEOUT = 8.0
+
     def get(self) -> CellInfo:
         if not self.available:
             return CellInfo(available=False, note="WinRT недоступен")
         try:
-            return asyncio.run(self._get_async())
+            return asyncio.run(asyncio.wait_for(self._get_async(), self.TIMEOUT))
+        except asyncio.TimeoutError:
+            return CellInfo(available=False, note="Таймаут запроса данных соты")
         except Exception as exc:
             return CellInfo(available=False, note=str(exc))
 

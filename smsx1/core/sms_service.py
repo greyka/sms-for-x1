@@ -33,12 +33,20 @@ class SmsService:
         self.available = _WINRT_OK
         self.last_error = _WINRT_ERR
 
+    # Таймауты (сек) — WinRT-операции с SMS-хранилищем модема могут зависать
+    READ_TIMEOUT = 12.0
+    SEND_TIMEOUT = 20.0
+
     # ── публичный синхронный API ─────────────────────────────────────────────
     def read_all(self) -> list[SmsMessage]:
         if not self.available:
             return []
         try:
-            return asyncio.run(self._read_all_async())
+            self.last_error = ""
+            return asyncio.run(self._guard(self._read_all_async(), self.READ_TIMEOUT))
+        except asyncio.TimeoutError:
+            self.last_error = "Таймаут чтения SMS (модем занят или слабый сигнал)"
+            return []
         except Exception as exc:
             self.last_error = str(exc)
             return []
@@ -47,7 +55,9 @@ class SmsService:
         if not self.available:
             return OpResult(False, "WinRT SMS API недоступен")
         try:
-            return asyncio.run(self._send_async(number, text))
+            return asyncio.run(self._guard(self._send_async(number, text), self.SEND_TIMEOUT))
+        except asyncio.TimeoutError:
+            return OpResult(False, "Таймаут отправки SMS")
         except Exception as exc:
             return OpResult(False, f"Ошибка отправки: {exc}")
 
@@ -55,14 +65,25 @@ class SmsService:
         if not self.available:
             return OpResult(False, "WinRT SMS API недоступен")
         try:
-            return asyncio.run(self._delete_async(message_id))
+            return asyncio.run(self._guard(self._delete_async(message_id), self.READ_TIMEOUT))
+        except asyncio.TimeoutError:
+            return OpResult(False, "Таймаут удаления SMS")
         except Exception as exc:
             return OpResult(False, f"Ошибка удаления: {exc}")
+
+    @staticmethod
+    async def _guard(coro, timeout: float):
+        return await asyncio.wait_for(coro, timeout)
 
     # ── реализация ───────────────────────────────────────────────────────────
     async def _open_device(self):
         selector = SmsDevice.get_device_selector()
-        devices = await DeviceInformation.find_all_async(selector)
+        # 2-арг перегрузка (aqsFilter, additionalProperties) — иначе winsdk
+        # ошибочно выбирает find_all_async(DeviceClass:int) и падает на строке.
+        try:
+            devices = await DeviceInformation.find_all_async(selector, [])
+        except TypeError:
+            devices = await DeviceInformation.find_all_async(selector)
         last = None
         for info in devices:
             try:
