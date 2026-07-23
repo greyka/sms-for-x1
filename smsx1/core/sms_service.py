@@ -11,12 +11,14 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from .models import SmsDirection, SmsMessage, OpResult
+from .pdu import parse_deliver
 
 try:
     from winsdk.windows.devices.sms import (
         SmsDevice,
         SmsMessageFilter,
         SmsTextMessage,
+        SmsBinaryMessage,
     )
     from winsdk.windows.devices.enumeration import DeviceInformation
     _WINRT_OK = True
@@ -76,36 +78,45 @@ class SmsService:
         return await asyncio.wait_for(coro, timeout)
 
     # ── реализация ───────────────────────────────────────────────────────────
-    async def _open_device(self):
+    async def _devices(self):
         selector = SmsDevice.get_device_selector()
         # 2-арг перегрузка (aqsFilter, additionalProperties) — иначе winsdk
         # ошибочно выбирает find_all_async(DeviceClass:int) и падает на строке.
         try:
-            devices = await DeviceInformation.find_all_async(selector, [])
+            return await DeviceInformation.find_all_async(selector, [])
         except TypeError:
-            devices = await DeviceInformation.find_all_async(selector)
-        last = None
-        for info in devices:
+            return await DeviceInformation.find_all_async(selector)
+
+    async def _open_device(self):
+        """Открыть первое пригодное SMS-устройство (пропуская пустые id —
+        именно на них зависало чтение)."""
+        for info in await self._devices():
+            if not info.id:
+                continue
             try:
                 dev = await SmsDevice.from_id_async(info.id)
-                if dev is not None:
-                    return dev
-            except Exception as exc:  # часть селекторов не открывается
-                last = exc
+            except Exception:
                 continue
-        if last:
-            raise last
+            if dev is not None:
+                return dev
         raise RuntimeError("SMS-устройство не найдено")
 
     async def _read_all_async(self) -> list[SmsMessage]:
-        dev = await self._open_device()
-        store = dev.message_store
-        raw = await store.get_messages_async(SmsMessageFilter.ALL)
-        result: list[SmsMessage] = []
-        for m in raw:
-            result.append(self._convert(m))
-        result.sort(key=lambda x: x.timestamp or datetime.min, reverse=True)
-        return result
+        # перебираем устройства: берём сообщения с первого, что ответит
+        for info in await self._devices():
+            if not info.id:
+                continue
+            try:
+                dev = await SmsDevice.from_id_async(info.id)
+                if dev is None:
+                    continue
+                raw = await dev.message_store.get_messages_async(SmsMessageFilter.ALL)
+            except Exception:
+                continue
+            result = [self._convert(m) for m in raw]
+            result.sort(key=lambda x: x.timestamp or datetime.min, reverse=True)
+            return result
+        return []
 
     async def _send_async(self, number: str, text: str) -> OpResult:
         dev = await self._open_device()
@@ -129,20 +140,37 @@ class SmsService:
 
     # ── конвертация WinRT → модель ───────────────────────────────────────────
     def _convert(self, m) -> SmsMessage:
-        tm = getattr(m, "text_message", None) or m
-        sender = self._safe(lambda: tm.from_) or self._safe(lambda: tm.to) or "—"
-        body = self._safe(lambda: tm.body) or ""
-        ts = self._parse_ts(self._safe(lambda: tm.timestamp))
         mid = str(self._safe(lambda: m.id) or "")
-        is_read = bool(self._safe(lambda: m.is_read))
-        return SmsMessage(
-            id=mid,
-            sender=str(sender),
-            body=str(body),
-            timestamp=ts,
-            direction=SmsDirection.INCOMING,
-            is_read=is_read,
-        )
+
+        # 1) текстовое сообщение (если модем отдаёт готовый текст)
+        try:
+            tm = SmsTextMessage._from(m)
+            return SmsMessage(
+                id=mid,
+                sender=str(self._safe(lambda: tm.from_) or "—"),
+                body=str(self._safe(lambda: tm.body) or ""),
+                timestamp=self._parse_ts(self._safe(lambda: tm.timestamp)),
+                direction=SmsDirection.INCOMING,
+            )
+        except Exception:
+            pass
+
+        # 2) бинарное — сырой PDU (обычный случай для MBIM-модемов)
+        try:
+            bm = SmsBinaryMessage._from(m)
+            data = bytes(bm.get_data())
+            pdu = parse_deliver(data.hex())
+            return SmsMessage(
+                id=mid,
+                sender=pdu.sender or "—",
+                body=pdu.body,
+                timestamp=pdu.timestamp,
+                direction=SmsDirection.INCOMING,
+            )
+        except Exception as exc:
+            return SmsMessage(id=mid, sender="—",
+                              body=f"(не удалось декодировать SMS: {exc})",
+                              direction=SmsDirection.INCOMING)
 
     @staticmethod
     def _safe(fn):
