@@ -1,0 +1,30 @@
+[project]
+name = "sms-for-x1"
+version = "1.0.0"
+description = "Премиальное приложение управления WWAN-модемом ThinkPad X1 Carbon: SMS, USSD, режимы, данные соты."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "SMS for X1" }]
+keywords = ["wwan", "modem", "sms", "ussd", "quectel", "thinkpad", "pyside6", "fluent"]
+
+dependencies = [
+    "PySide6==6.11.1",
+    "PySide6-Fluent-Widgets==1.11.2",
+    "qt-material==2.17",
+    "QtAwesome==1.4.2",
+    "winsdk==1.0.0b10",
+    "pyserial==3.5",
+    "pillow==12.3.0",
+]
+
+[project.gui-scripts]
+sms-for-x1 = "smsx1.app:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["smsx1", "smsx1.core", "smsx1.viewmodels", "smsx1.ui",
+            "smsx1.ui.components", "smsx1.ui.pages"]

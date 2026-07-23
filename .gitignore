@@ -1,0 +1,31 @@
+# Виртуальные окружения
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+*.spec
+
+# Логи и временное
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Сборка иконок — .ico/.png коммитим, промежуточное нет
+assets/*.tmp
+
+# PyInstaller
+*.manifest

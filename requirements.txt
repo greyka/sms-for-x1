@@ -1,0 +1,10 @@
+# SMS for X1 — зависимости
+# Python 3.10+ (проверено на 3.12), только Windows
+
+PySide6==6.11.1
+PySide6-Fluent-Widgets==1.11.2
+qt-material==2.17
+QtAwesome==1.4.2
+winsdk==1.0.0b10
+pyserial==3.5
+pillow==12.3.0
