@@ -14,9 +14,25 @@ from .ui.main_window import MainWindow
 from .viewmodels.app_state import AppState
 
 ASSETS = Path(__file__).resolve().parent.parent / "assets"
+APP_ID = "SMSforX1.ModemManager.1"  # AppUserModelID для корректной иконки в панели задач
+
+
+def _set_app_user_model_id() -> None:
+    """Windows группирует кнопки панели задач по AppUserModelID. Без явного ID
+    приложение под pythonw наследует иконку лаунчера (.pyw). Задаём свой ID —
+    тогда панель задач берёт иконку окна (setWindowIcon)."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
+    except Exception:
+        pass
 
 
 def main() -> int:
+    _set_app_user_model_id()
+
     # High-DPI по умолчанию включён в Qt6; задаём качественное масштабирование
     QApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
