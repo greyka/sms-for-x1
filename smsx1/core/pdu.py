@@ -20,6 +20,10 @@ class Pdu:
     body: str = ""
     timestamp: Optional[datetime] = None
     dcs: int = 0
+    # склейка длинных SMS (concatenated / multipart)
+    ref: Optional[int] = None   # общий номер набора частей
+    total: int = 1              # всего частей
+    seq: int = 1                # номер этой части
 
 
 def gsm7_unpack(data: bytes, septet_count: Optional[int] = None) -> str:
@@ -84,6 +88,24 @@ def _decode_scts(b: bytes) -> Optional[datetime]:
         return None
 
 
+def _parse_udh(ud: bytes) -> tuple[Optional[int], int, int]:
+    """Разобрать UDH → (ref, total, seq) для склейки многочастных SMS."""
+    if not ud:
+        return None, 1, 1
+    udh_len = ud[0]
+    udh = ud[1:1 + udh_len]
+    i = 0
+    while i + 1 < len(udh):
+        iei, ielen = udh[i], udh[i + 1]
+        ie = udh[i + 2:i + 2 + ielen]
+        if iei == 0x00 and len(ie) >= 3:            # 8-битный ref
+            return ie[0], ie[1], ie[2]
+        if iei == 0x08 and len(ie) >= 4:            # 16-битный ref
+            return (ie[0] << 8) | ie[1], ie[2], ie[3]
+        i += 2 + ielen
+    return None, 1, 1
+
+
 def _decode_ud(dcs: int, udl: int, ud: bytes, udhi: bool) -> str:
     # пропустить UDH при наличии
     if udhi and ud:
@@ -125,5 +147,7 @@ def parse_deliver(pdu_hex: str) -> Pdu:
     # TP-UDL + UD
     udl = b[i]; i += 1
     ud = b[i:]
+    ref, total, seq = (_parse_udh(ud) if udhi else (None, 1, 1))
     body = _decode_ud(dcs, udl, ud, udhi)
-    return Pdu(sender=sender, body=body.strip(), timestamp=ts, dcs=dcs)
+    return Pdu(sender=sender, body=body.strip(), timestamp=ts, dcs=dcs,
+               ref=ref, total=total, seq=seq)

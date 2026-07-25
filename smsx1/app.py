@@ -30,6 +30,30 @@ def _set_app_user_model_id() -> None:
         pass
 
 
+def _set_native_taskbar_icon(window, icon_path: Path) -> None:
+    """Принудительно задать значок окна через WinAPI WM_SETICON.
+
+    Frameless-окно qframelesswindow не всегда транслирует setWindowIcon в
+    нативный значок → панель задач показывает generic-иконку. WM_SETICON на
+    HWND ставит значок в обход Qt."""
+    if sys.platform != "win32" or not icon_path.exists():
+        return
+    try:
+        import ctypes
+        u32 = ctypes.windll.user32
+        hwnd = int(window.winId())
+        IMAGE_ICON, LR_LOADFROMFILE, LR_DEFAULTSIZE = 1, 0x10, 0x40
+        WM_SETICON, ICON_SMALL, ICON_BIG = 0x0080, 0, 1
+        big = u32.LoadImageW(None, str(icon_path), IMAGE_ICON, 256, 256, LR_LOADFROMFILE)
+        small = u32.LoadImageW(None, str(icon_path), IMAGE_ICON, 32, 32, LR_LOADFROMFILE)
+        if big:
+            u32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, big)
+        if small:
+            u32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, small)
+    except Exception:
+        pass
+
+
 def main() -> int:
     _set_app_user_model_id()
 
@@ -51,6 +75,7 @@ def main() -> int:
     state = AppState()
     window = MainWindow(state, icon_path=str(icon_path) if icon_path.exists() else None)
     window.show()
+    _set_native_taskbar_icon(window, icon_path)
 
     state.start()
     return app.exec()

@@ -156,6 +156,8 @@ class SmsMessage:
     timestamp: Optional[datetime] = None
     direction: SmsDirection = SmsDirection.INCOMING
     is_read: bool = False
+    part_ids: list[str] = field(default_factory=list)  # id всех сегментов (для удаления)
+    parts: int = 1                                      # сколько сегментов склеено
 
     @property
     def time_label(self) -> str:

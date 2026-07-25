@@ -64,10 +64,17 @@ class SmsService:
             return OpResult(False, f"Ошибка отправки: {exc}")
 
     def delete(self, message_id: str) -> OpResult:
+        return self.delete_many([message_id])
+
+    def delete_many(self, message_ids: list[str]) -> OpResult:
         if not self.available:
             return OpResult(False, "WinRT SMS API недоступен")
+        ids = [i for i in message_ids if i]
+        if not ids:
+            return OpResult(False, "Нет сообщений для удаления")
         try:
-            return asyncio.run(self._guard(self._delete_async(message_id), self.READ_TIMEOUT))
+            n = asyncio.run(self._guard(self._delete_many_async(ids), self.READ_TIMEOUT))
+            return OpResult(True, f"Удалено сообщений: {n}")
         except asyncio.TimeoutError:
             return OpResult(False, "Таймаут удаления SMS")
         except Exception as exc:
@@ -113,10 +120,34 @@ class SmsService:
                 raw = await dev.message_store.get_messages_async(SmsMessageFilter.ALL)
             except Exception:
                 continue
-            result = [self._convert(m) for m in raw]
-            result.sort(key=lambda x: x.timestamp or datetime.min, reverse=True)
-            return result
+            items = [self._convert(m) for m in raw]
+            return self._reassemble(items)
         return []
+
+    def _reassemble(self, items: list[tuple]) -> list[SmsMessage]:
+        """Склеить многочастные (concatenated) SMS в одно сообщение."""
+        singles: list[SmsMessage] = []
+        groups: dict[tuple, list[tuple[int, SmsMessage]]] = {}
+        for msg, ref, total, seq in items:
+            if ref is None or total <= 1:
+                msg.part_ids = [msg.id]
+                singles.append(msg)
+            else:
+                groups.setdefault((msg.sender, ref), []).append((seq, msg))
+
+        merged: list[SmsMessage] = []
+        for (sender, _ref), parts in groups.items():
+            parts.sort(key=lambda x: x[0])
+            body = "".join(p[1].body for p in parts)
+            ids = [p[1].id for p in parts]
+            ts = next((p[1].timestamp for p in parts if p[1].timestamp), None)
+            merged.append(SmsMessage(
+                id=ids[0], sender=sender, body=body, timestamp=ts,
+                direction=SmsDirection.INCOMING, part_ids=ids, parts=len(parts)))
+
+        result = singles + merged
+        result.sort(key=lambda x: x.timestamp or datetime.min, reverse=True)
+        return result
 
     async def _send_async(self, number: str, text: str) -> OpResult:
         dev = await self._open_device()
@@ -133,25 +164,35 @@ class SmsService:
         await dev.send_message_async(msg)
         return OpResult(True, "Сообщение отправлено")
 
-    async def _delete_async(self, message_id: str) -> OpResult:
+    async def _delete_many_async(self, ids: list[str]) -> int:
         dev = await self._open_device()
-        await dev.message_store.delete_message_async(int(message_id))
-        return OpResult(True, "Сообщение удалено")
+        store = dev.message_store
+        n = 0
+        # удаляем от больших id к меньшим, чтобы не сдвигать индексы
+        for mid in sorted(ids, key=lambda x: int(x) if str(x).isdigit() else 0, reverse=True):
+            try:
+                await store.delete_message_async(int(mid))
+                n += 1
+            except Exception:
+                continue
+        return n
 
     # ── конвертация WinRT → модель ───────────────────────────────────────────
-    def _convert(self, m) -> SmsMessage:
+    def _convert(self, m) -> tuple[SmsMessage, "int|None", int, int]:
+        """Вернуть (сообщение, ref, total, seq) — последние три для склейки."""
         mid = str(self._safe(lambda: m.id) or "")
 
         # 1) текстовое сообщение (если модем отдаёт готовый текст)
         try:
             tm = SmsTextMessage._from(m)
-            return SmsMessage(
+            msg = SmsMessage(
                 id=mid,
                 sender=str(self._safe(lambda: tm.from_) or "—"),
                 body=str(self._safe(lambda: tm.body) or ""),
                 timestamp=self._parse_ts(self._safe(lambda: tm.timestamp)),
                 direction=SmsDirection.INCOMING,
             )
+            return msg, None, 1, 1
         except Exception:
             pass
 
@@ -160,17 +201,18 @@ class SmsService:
             bm = SmsBinaryMessage._from(m)
             data = bytes(bm.get_data())
             pdu = parse_deliver(data.hex())
-            return SmsMessage(
+            msg = SmsMessage(
                 id=mid,
                 sender=pdu.sender or "—",
                 body=pdu.body,
                 timestamp=pdu.timestamp,
                 direction=SmsDirection.INCOMING,
             )
+            return msg, pdu.ref, pdu.total, pdu.seq
         except Exception as exc:
-            return SmsMessage(id=mid, sender="—",
-                              body=f"(не удалось декодировать SMS: {exc})",
-                              direction=SmsDirection.INCOMING)
+            return (SmsMessage(id=mid, sender="—",
+                               body=f"(не удалось декодировать SMS: {exc})",
+                               direction=SmsDirection.INCOMING), None, 1, 1)
 
     @staticmethod
     def _safe(fn):

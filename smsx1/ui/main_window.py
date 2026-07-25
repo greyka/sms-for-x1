@@ -15,7 +15,9 @@ from qfluentwidgets import (
 from .. import __app_name__, __version__
 from ..config import THEME
 from ..viewmodels.app_state import AppState
-from .pages import DashboardPage, MessagesPage, ModemPage, SettingsPage, UssdPage
+from .pages import (
+    CellPage, DashboardPage, MessagesPage, ModemPage, SettingsPage, UssdPage,
+)
 from .status_bar import StatusBar
 
 P = THEME.palette
@@ -48,12 +50,14 @@ class MainWindow(FluentWindow):
         self.messages = MessagesPage(state, self)
         self.ussd = UssdPage(state, self)
         self.modem = ModemPage(state, self)
+        self.cell = CellPage(state, self)
         self.settings = SettingsPage(state, self)
 
         self.addSubInterface(self.dashboard, FIF.HOME, "Обзор")
         self.addSubInterface(self.messages, FIF.MESSAGE, "Сообщения")
         self.addSubInterface(self.ussd, FIF.COMMAND_PROMPT, "USSD")
         self.addSubInterface(self.modem, FIF.CONNECT, "Модем")
+        self.addSubInterface(self.cell, FIF.WIFI, "БС")
         self.addSubInterface(
             self.settings, FIF.SETTING, "Настройки",
             position=NavigationItemPosition.BOTTOM)

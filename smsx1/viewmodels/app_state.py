@@ -133,6 +133,14 @@ class AppState(QObject):
         run_async(self.sms.delete, message_id,
                   on_result=self._on_op, on_finished=self.refresh_messages)
 
+    def delete_messages(self, messages: list) -> None:
+        """Удалить выбранные сообщения (со всеми их сегментами)."""
+        ids: list[str] = []
+        for m in messages:
+            ids.extend(m.part_ids or [m.id])
+        run_async(self.sms.delete_many, ids,
+                  on_result=self._on_op, on_finished=self.refresh_messages)
+
     # ── ussd ─────────────────────────────────────────────────────────────────
     def send_ussd(self, code: str) -> None:
         guid = self._status.interface_guid

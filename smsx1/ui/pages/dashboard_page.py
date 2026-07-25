@@ -65,11 +65,6 @@ class DashboardPage(BasePage):
         row.addWidget(self._device_card(), 1)
         self.body().addLayout(row)
 
-        # ── карточка базовой станции (вышки) ──
-        self.body().addWidget(SectionHeader("Базовая станция",
-                                            "Параметры обслуживающей соты"))
-        self.body().addWidget(self._cell_card())
-
         # ── SIM-слоты ──
         self.body().addWidget(SectionHeader("SIM-карты", "Физический слот и eSIM"))
         self.slots_row = QHBoxLayout()
@@ -155,87 +150,6 @@ class DashboardPage(BasePage):
         card.body().addLayout(row)
         return card
 
-    # ── карточка вышки ──
-    def _cell_card(self) -> GlassCard:
-        from qfluentwidgets import ProgressBar
-        card = GlassCard(radius=R.md, padding=S.xl, interactive=False)
-
-        # верхняя строка: технология + бейдж качества
-        top = QHBoxLayout()
-        self.cell_tech = StrongBodyLabel("—", card)
-        self.cell_tech.setStyleSheet("font-size: 22px; font-weight: 700;")
-        top.addWidget(self.cell_tech)
-        top.addStretch(1)
-        self.cell_quality_badge = StatusBadge("Нет данных", "muted")
-        top.addWidget(self.cell_quality_badge)
-        card.body().addLayout(top)
-
-        # прогресс качества (RSRP)
-        self.cell_quality = ProgressBar(card)
-        self.cell_quality.setValue(0)
-        self.cell_quality.setFixedHeight(6)
-        card.body().addWidget(self.cell_quality)
-        card.body().addSpacing(S.sm)
-
-        # сетка параметров (2 колонки)
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(S.xxl)
-        grid.setVerticalSpacing(2)
-        self.cell_band = MetricRow("Диапазон (Band)", "—")
-        self.cell_id = MetricRow("Cell ID", "—", mono=True)
-        self.cell_pci = MetricRow("PCI", "—", mono=True)
-        self.cell_earfcn = MetricRow("EARFCN", "—", mono=True)
-        self.cell_tac = MetricRow("TAC", "—", mono=True)
-        self.cell_rsrp = MetricRow("RSRP", "—", mono=True)
-        self.cell_rsrq = MetricRow("RSRQ", "—", mono=True)
-        self.cell_rssi = MetricRow("RSSI", "—", mono=True)
-        left = [self.cell_band, self.cell_id, self.cell_pci, self.cell_earfcn]
-        right = [self.cell_tac, self.cell_rsrp, self.cell_rsrq, self.cell_rssi]
-        for i, m in enumerate(left):
-            grid.addWidget(m, i, 0)
-        for i, m in enumerate(right):
-            grid.addWidget(m, i, 1)
-        grid.setColumnStretch(0, 1)
-        grid.setColumnStretch(1, 1)
-        card.body().addLayout(grid)
-
-        self.cell_note = CaptionLabel("", card)
-        self.cell_note.setStyleSheet(f"color: {P.text_tertiary};")
-        self.cell_note.setWordWrap(True)
-        card.body().addWidget(self.cell_note)
-        return card
-
-    def _update_cell(self, st: ModemStatus) -> None:
-        c = st.cell
-        if c and c.available:
-            self.cell_tech.setText(c.tech or "—")
-            self.cell_band.set_value(c.band or "—", P.cyan if c.band else P.text)
-            self.cell_id.set_value(str(c.cell_id) if c.cell_id is not None else "—")
-            self.cell_pci.set_value(str(c.pci) if c.pci is not None else "—")
-            self.cell_earfcn.set_value(str(c.earfcn) if c.earfcn is not None else "—")
-            self.cell_tac.set_value(str(c.tac) if c.tac is not None else "—")
-            self.cell_rsrp.set_value(f"{c.rsrp_dbm:.0f} dBm" if c.rsrp_dbm is not None else "—")
-            self.cell_rsrq.set_value(f"{c.rsrq_db:.0f} dB" if c.rsrq_db is not None else "—")
-            self.cell_rssi.set_value(f"{st.rssi_dbm} dBm" if st.rssi_dbm is not None else "—")
-            q = c.quality_label
-            lvl = ("success" if q in ("Отличное", "Хорошее") else
-                   "warning" if q == "Среднее" else "error")
-            self.cell_quality_badge.set_status(q, lvl)
-            self.cell_quality.setValue(int(c.quality_ratio * 100))
-            self.cell_note.setText("")
-        else:
-            self.cell_tech.setText(st.data_class.split(",")[-1].strip() or "—")
-            for m in (self.cell_band, self.cell_id, self.cell_pci, self.cell_earfcn,
-                      self.cell_tac, self.cell_rsrp, self.cell_rsrq):
-                m.set_value("—")
-            self.cell_rssi.set_value(f"{st.rssi_dbm} dBm" if st.rssi_dbm is not None else "—")
-            self.cell_quality_badge.set_status("Нет данных", "muted")
-            self.cell_quality.setValue(0)
-            note = (st.cell.note if st.cell else "") or \
-                "Подробные данные соты недоступны в MBIM-режиме или требуют прав. " \
-                "RSSI показан по данным Windows."
-            self.cell_note.setText(note)
-
     # ── обновление ──
     def _on_status(self, st: ModemStatus) -> None:
         # бейдж
@@ -280,6 +194,3 @@ class DashboardPage(BasePage):
             self.slots_row.addWidget(
                 self._slot_card(slot.title, slot.state, accent, slot.active))
         self.slots_row.addStretch(1)
-
-        # базовая станция
-        self._update_cell(st)

@@ -10,6 +10,7 @@ from qfluentwidgets import (
     BodyLabel, CaptionLabel, FluentIcon as FIF, IconWidget, LineEdit,
     PlainTextEdit, PrimaryPushButton, PushButton, SearchLineEdit, StrongBodyLabel,
     TableWidget, TransparentToolButton, MessageBoxBase, SubtitleLabel, InfoBadge,
+    Dialog,
 )
 
 from ...config import THEME
@@ -61,6 +62,7 @@ class MessagesPage(BasePage):
                          crumbs=["SMS for X1", "Сообщения"], parent=parent)
         self.state = state
         self._all: list[SmsMessage] = []
+        self._shown: list[SmsMessage] = []      # сообщения в текущем порядке строк
 
         # ── панель действий ──
         bar = QHBoxLayout()
@@ -73,6 +75,9 @@ class MessagesPage(BasePage):
 
         self.compose_btn = PrimaryPushButton(FIF.SEND, "Написать", self)
         self.compose_btn.clicked.connect(self._compose)
+        self.delete_btn = PushButton(FIF.DELETE, "Удалить", self)
+        self.delete_btn.clicked.connect(self._delete_selected)
+        self.delete_btn.setEnabled(False)
         self.reload_btn = TransparentToolButton(FIF.SYNC, self)
         self.reload_btn.setToolTip("Обновить")
         self.reload_btn.clicked.connect(self.state.refresh_messages)
@@ -81,6 +86,7 @@ class MessagesPage(BasePage):
         bar.addWidget(self.count_badge)
         bar.addStretch(1)
         bar.addWidget(self.reload_btn)
+        bar.addWidget(self.delete_btn)
         bar.addWidget(self.compose_btn)
         self.body().addLayout(bar)
 
@@ -94,7 +100,9 @@ class MessagesPage(BasePage):
         self.table.setBorderRadius(12)
         self.table.setWordWrap(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.itemSelectionChanged.connect(self._on_selection)
         h = self.table.horizontalHeader()
         h.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         h.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
@@ -146,6 +154,7 @@ class MessagesPage(BasePage):
                       if q in m.sender.lower() or q in m.body.lower()])
 
     def _render(self, msgs: list[SmsMessage]) -> None:
+        self._shown = list(msgs)
         self.count_badge.setText(str(len(msgs)))
         has = bool(msgs)
         self.card.setVisible(has)
@@ -154,12 +163,52 @@ class MessagesPage(BasePage):
         self.table.setRowCount(len(msgs))
         for r, m in enumerate(msgs):
             self.table.setItem(r, 0, self._item(m.sender, bold=True))
-            self.table.setItem(r, 1, self._item(m.preview))
+            preview = m.preview
+            if m.parts > 1:
+                preview = f"{preview}   ·  {self._plural_parts(m.parts)}"
+            self.table.setItem(r, 1, self._item(preview))
             self.table.setItem(r, 2, self._item(m.time_label, color=P.text_secondary))
             status = "Прочитано" if m.is_read else "Новое"
             self.table.setItem(r, 3, self._item(
                 status, color=P.text_secondary if m.is_read else P.primary))
             self.table.setRowHeight(r, 48)
+        self.delete_btn.setEnabled(False)
+
+    # ── выбор и удаление ──
+    def _on_selection(self) -> None:
+        rows = {i.row() for i in self.table.selectedItems()}
+        self.delete_btn.setEnabled(bool(rows))
+        self.delete_btn.setText(f"Удалить ({len(rows)})" if rows else "Удалить")
+
+    def _selected_messages(self) -> list[SmsMessage]:
+        rows = sorted({i.row() for i in self.table.selectedItems()})
+        return [self._shown[r] for r in rows if 0 <= r < len(self._shown)]
+
+    def _delete_selected(self) -> None:
+        msgs = self._selected_messages()
+        if not msgs:
+            return
+        total_parts = sum(len(m.part_ids or [m.id]) for m in msgs)
+        title = "Удалить сообщения?"
+        content = (f"Будет удалено сообщений: {len(msgs)}"
+                   + (f" (сегментов: {total_parts})" if total_parts != len(msgs) else "")
+                   + ".\nДействие необратимо.")
+        dlg = Dialog(title, content, self.window())
+        dlg.yesButton.setText("Удалить")
+        dlg.cancelButton.setText("Отмена")
+        if dlg.exec():
+            self.state.delete_messages(msgs)
+
+    @staticmethod
+    def _plural_parts(n: int) -> str:
+        n10, n100 = n % 10, n % 100
+        if n10 == 1 and n100 != 11:
+            word = "часть"
+        elif 2 <= n10 <= 4 and not (12 <= n100 <= 14):
+            word = "части"
+        else:
+            word = "частей"
+        return f"{n} {word}"
 
     @staticmethod
     def _item(text: str, *, bold: bool = False, color: str | None = None) -> QTableWidgetItem:
