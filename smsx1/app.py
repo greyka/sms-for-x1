@@ -13,7 +13,11 @@ from .ui.theme import apply_theme
 from .ui.main_window import MainWindow
 from .viewmodels.app_state import AppState
 
-ASSETS = Path(__file__).resolve().parent.parent / "assets"
+if getattr(sys, "frozen", False):
+    # собранный .exe (PyInstaller) — ресурсы в каталоге распаковки
+    ASSETS = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)) / "assets"
+else:
+    ASSETS = Path(__file__).resolve().parent.parent / "assets"
 APP_ID = "SMSforX1.ModemManager.1"  # AppUserModelID для корректной иконки в панели задач
 
 

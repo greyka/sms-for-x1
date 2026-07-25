@@ -10,7 +10,7 @@ from qfluentwidgets import (
     BodyLabel, CaptionLabel, FluentIcon as FIF, IconWidget, LineEdit,
     PlainTextEdit, PrimaryPushButton, PushButton, SearchLineEdit, StrongBodyLabel,
     TableWidget, TransparentToolButton, MessageBoxBase, SubtitleLabel, InfoBadge,
-    Dialog,
+    Dialog, TextEdit,
 )
 
 from ...config import THEME
@@ -51,6 +51,31 @@ class ComposeDialog(MessageBoxBase):
 
     def payload(self) -> tuple[str, str]:
         return self.number.text().strip(), self.text.toPlainText().strip()
+
+
+class MessageViewDialog(MessageBoxBase):
+    """Просмотр полного текста SMS (в т.ч. склеенной из частей)."""
+
+    def __init__(self, msg: SmsMessage, parent=None):
+        super().__init__(parent)
+        self.titleLabel = SubtitleLabel(f"Сообщение от {msg.sender}", self)
+        meta = msg.time_label + (f"   ·   {msg.parts} частей" if msg.parts > 1 else "")
+        self.metaLabel = CaptionLabel(meta, self)
+        self.metaLabel.setStyleSheet(f"color: {P.text_secondary};")
+
+        self.body_view = TextEdit(self)
+        self.body_view.setReadOnly(True)
+        self.body_view.setPlainText(msg.body)
+        self.body_view.setMinimumHeight(220)
+
+        self.viewLayout.addWidget(self.titleLabel)
+        self.viewLayout.addWidget(self.metaLabel)
+        self.viewLayout.addSpacing(6)
+        self.viewLayout.addWidget(self.body_view)
+
+        self.yesButton.setText("Закрыть")
+        self.cancelButton.hide()
+        self.widget.setMinimumWidth(560)
 
 
 class MessagesPage(BasePage):
@@ -103,6 +128,7 @@ class MessagesPage(BasePage):
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.itemSelectionChanged.connect(self._on_selection)
+        self.table.itemDoubleClicked.connect(self._open_message)
         h = self.table.horizontalHeader()
         h.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         h.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
@@ -173,6 +199,12 @@ class MessagesPage(BasePage):
                 status, color=P.text_secondary if m.is_read else P.primary))
             self.table.setRowHeight(r, 48)
         self.delete_btn.setEnabled(False)
+
+    # ── просмотр полного текста ──
+    def _open_message(self, item) -> None:
+        r = item.row()
+        if 0 <= r < len(self._shown):
+            MessageViewDialog(self._shown[r], self.window()).exec()
 
     # ── выбор и удаление ──
     def _on_selection(self) -> None:
