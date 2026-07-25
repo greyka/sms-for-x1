@@ -72,11 +72,17 @@ class SmsService:
         ids = [i for i in message_ids if i]
         if not ids:
             return OpResult(False, "Нет сообщений для удаления")
+        # таймаут масштабируем: каждое удаление на слабом сигнале может быть медленным
+        timeout = min(120.0, 15.0 + 10.0 * len(ids))
         try:
-            n = asyncio.run(self._guard(self._delete_many_async(ids), self.READ_TIMEOUT))
+            n = asyncio.run(self._guard(self._delete_many_async(ids), timeout))
+            if n == 0:
+                return OpResult(False, "Не удалось удалить (сообщения не найдены)")
+            if n < len(ids):
+                return OpResult(True, f"Удалено {n} из {len(ids)} (остальные не найдены)")
             return OpResult(True, f"Удалено сообщений: {n}")
         except asyncio.TimeoutError:
-            return OpResult(False, "Таймаут удаления SMS")
+            return OpResult(False, "Таймаут удаления SMS — попробуйте ещё раз")
         except Exception as exc:
             return OpResult(False, f"Ошибка удаления: {exc}")
 
