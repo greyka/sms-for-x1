@@ -200,7 +200,9 @@ class SettingsPage(BasePage):
 
         links = QHBoxLayout()
         links.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        links.addWidget(HyperlinkButton("https://github.com", "GitHub", card, FIF.GITHUB))
+        links.addWidget(HyperlinkButton(
+            "https://github.com/greyka/sms-for-x1", "Репозиторий на GitHub",
+            card, FIF.GITHUB))
         card.body().addSpacing(S.sm)
         card.body().addLayout(links)
         return card
