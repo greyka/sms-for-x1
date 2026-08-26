@@ -21,6 +21,6 @@ if _sys.stdout is None:
 if _sys.stderr is None:
     _sys.stderr = _io.StringIO()
 
-__version__ = "1.1.2"
+__version__ = "1.2.0"
 __app_name__ = "SMS for X1"
 __author__ = "SMS for X1"

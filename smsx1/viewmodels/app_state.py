@@ -1,9 +1,11 @@
 """Центральный ViewModel: держит сервисы, состояние и рассылает сигналы во View."""
 from __future__ import annotations
 
+import time
+
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from ..core.models import ModemStatus, OpResult, SmsMessage, UssdResult
+from ..core.models import ConnState, ModemStatus, OpResult, SmsMessage, UssdResult
 from ..core.modem_service import ModemService
 from ..core.sms_service import SmsService
 from ..core.ussd_service import UssdService
@@ -143,14 +145,43 @@ class AppState(QObject):
 
     # ── ussd ─────────────────────────────────────────────────────────────────
     def send_ussd(self, code: str) -> None:
+        """Отправить USSD.
+
+        Важно: USSD — сервис коммутации каналов. На LTE модем обслуживает его
+        через CSFB (уход на 2G/3G), из-за чего сессия передачи данных рвётся и
+        сама не поднимается. Поэтому после ответа соединение восстанавливаем.
+        """
         guid = self._status.interface_guid
         self.ussdLoading.emit(True)
+
+        def on_reply(res: UssdResult) -> None:
+            self.ussdReply.emit(res)
+            self._restore_data_session()
+
         run_async(
             self.ussd.send, guid, code,
-            on_result=self.ussdReply.emit,
+            on_result=on_reply,
             on_error=lambda e: self.ussdReply.emit(UssdResult(False, error=e)),
             on_finished=lambda: self.ussdLoading.emit(False),
         )
+
+    def _restore_data_session(self) -> None:
+        """Поднять интернет после USSD, если он отвалился (CSFB)."""
+        def work() -> OpResult:
+            # дать модему вернуться из CSFB в LTE
+            for _ in range(6):
+                time.sleep(2)
+                if self.modem.status().state == ConnState.CONNECTED:
+                    return OpResult(True, "")          # вернулся сам
+            return self.modem.connect()
+
+        def done(res: OpResult) -> None:
+            if res.message:
+                self.notify.emit("success" if res.ok else "warning",
+                                 "Интернет восстановлен после USSD" if res.ok
+                                 else f"Не удалось восстановить интернет: {res.message}")
+
+        run_async(work, on_result=done, on_finished=self.refresh_status)
 
     # ── serial / COM ─────────────────────────────────────────────────────────
     def refresh_ports(self) -> None:

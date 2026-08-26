@@ -114,7 +114,8 @@ def _decode_ud(dcs: int, udl: int, ud: bytes, udhi: bool) -> str:
     # UCS2
     if dcs == 0x08 or (dcs & 0x0C) == 0x08:
         try:
-            return ud.decode("utf-16-be", errors="replace")
+            # некоторые отправители ставят BOM в начале — убираем
+            return ud.decode("utf-16-be", errors="replace").lstrip("﻿")
         except Exception:
             return ""
     # 8-bit

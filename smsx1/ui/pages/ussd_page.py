@@ -57,6 +57,15 @@ class UssdPage(BasePage):
         self.quick_wrap.setSpacing(S.sm)
         self.quick_wrap.setAlignment(Qt.AlignmentFlag.AlignLeft)
         card.body().addLayout(self.quick_wrap)
+
+        hint = CaptionLabel(
+            "USSD — сервис коммутации каналов: на время запроса модем уходит с LTE "
+            "(CSFB), поэтому мобильный интернет ненадолго прерывается. "
+            "Приложение восстановит соединение автоматически.", card)
+        hint.setStyleSheet(f"color: {P.text_tertiary};")
+        hint.setWordWrap(True)
+        card.body().addSpacing(S.sm)
+        card.body().addWidget(hint)
         self.body().addWidget(card)
 
         # ── ответ ──

@@ -24,6 +24,10 @@ class Worker(QRunnable):
         self._args = args
         self._kwargs = kwargs
         self.signals = _Signals()
+        # Не давать Qt удалять C++-объект: иначе Python-обёртка (и вместе с ней
+        # объект сигналов) может быть уничтожена до доставки очереди сигналов —
+        # тогда результат «теряется» и UI зависает в состоянии загрузки.
+        self.setAutoDelete(False)
 
     @Slot()
     def run(self) -> None:
@@ -38,6 +42,11 @@ class Worker(QRunnable):
             self.signals.finished.emit()
 
 
+# Держим ссылки на выполняющиеся воркеры, пока они не завершатся, — иначе
+# сборщик мусора может уничтожить их вместе с непереданными сигналами.
+_active: set[Worker] = set()
+
+
 def run_async(fn: Callable[..., Any], *args,
               on_result: Callable[[Any], None] | None = None,
               on_error: Callable[[str], None] | None = None,
@@ -45,11 +54,16 @@ def run_async(fn: Callable[..., Any], *args,
               **kwargs) -> Worker:
     """Запустить ``fn`` в глобальном пуле потоков, подписав колбэки."""
     worker = Worker(fn, *args, **kwargs)
+    _active.add(worker)
+
     if on_result:
         worker.signals.result.connect(on_result)
     if on_error:
         worker.signals.error.connect(on_error)
     if on_finished:
         worker.signals.finished.connect(on_finished)
+    # отпускаем ссылку только после доставки всех колбэков
+    worker.signals.finished.connect(lambda w=worker: _active.discard(w))
+
     QThreadPool.globalInstance().start(worker)
     return worker
